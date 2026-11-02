@@ -1,5 +1,6 @@
 use super::types::*;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use serde_json::Value;
 
 use crate::api::client::send_request;
 use crate::config::AppConfig;
@@ -19,7 +20,18 @@ pub async fn convert_handler(
         .unwrap_or("Extract all text from this image. Return only raw text, no commentary.");
 
     match send_request(&config, &data_url, prompt).await {
-        Ok(text) => (StatusCode::OK, Json(ConvertResponse { text })).into_response(),
+        Ok(text) => match serde_json::from_str::<Value>(&text) {
+            Ok(parsed_json) => (StatusCode::OK, Json(parsed_json)).into_response(),
+            Err(e) => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({
+                    "error" : "Failed to parse exactracted text to JSON",
+                    "details" : e.to_string(),
+                    "raw_text" : text
+                })),
+            )
+                .into_response(),
+        },
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": e.to_string() })),

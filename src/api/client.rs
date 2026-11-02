@@ -70,6 +70,8 @@ pub async fn send_request(
     }
 
     let data: ChatResponse = res.json().await?;
+    
+    println!("ChatResponse >> {:#?}", data);
 
     Ok(data
         .choices

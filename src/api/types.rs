@@ -25,17 +25,10 @@ pub struct ChatRequest {
     pub(crate) max_tokens: u32,
 }
 
-
-#[derive(Deserialize, Debug)]
-pub struct ResponseData {
-    pub items: String,
-}
-
 #[derive(Deserialize, Debug)]
 pub struct ResponseContent {
     pub(crate) content: String,
 }
-
 
 #[derive(Deserialize, Debug)]
 pub struct ResponseMessage {

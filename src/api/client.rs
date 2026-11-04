@@ -10,7 +10,7 @@ pub async fn send_request(
     config: &AppConfig,
     data_url: &str,
     prompt: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let spinner = ProgressBar::new_spinner();
 
     spinner.set_style(

@@ -1,4 +1,6 @@
-use serde::Deserialize;
+use anyhow::{Context, Result};
+
+use crate::database;
 
 pub static SYSTEM_PROMPT: &str = r#"
 You are a receipt extraction and purchase allocation engine.
@@ -60,18 +62,8 @@ EXPECTED JSON STRUCTURE:
   "subtotal": 4.65,
   "tax": 0.00,
   "total": 4.65,
-  "payment": {
-    "method": "VISA",
-    "card_number": "XXXXXXXXXXXX9999",
-    "transaction_type": "CARD PRESENT",
-    "tendered": 4.65,
-    "change": 0.00
-  },
-  "metadata": {
-    "date": "10/18/2020",
-    "time": "08:24 PM",
-    "transaction_number": "72987869213046140"
-  }
+  "date_time": "10/18/2020 08:24 PM",
+  "transaction_number": "72987869213046140"
 }
 
 If the image is not a receipt, return:
@@ -97,9 +89,23 @@ CONTACT VALIDATION RULES:
 - If at least one valid contact is provided, proceed with receipt extraction
   and allocation.
 - Items not explicitly assigned to a named contact must be assigned to "self".
+- If a receipt reference is provided, use it as the value for transaction_number. If no receipt reference is provided or the value is null, empty, or blank, automatically generate a unique guuid identifier and assign it to receipt_ref.
+- Ensure that the generated identifier is a unique guuid, non-empty, and does not conflict with any existing receipt references. Never overwrite a valid receipt reference provided in the input.
+
+Date-Time (date_time) Formatting Rules:
+
+- Ensure date_time contains a valid, Rust-compatible date-time value.
+- Use the RFC 3339 / ISO 8601 format, including the timezone offset.
+- The expected format is YYYY-MM-DDTHH:MM:SS+00:00 (or the appropriate timezone offset).
+- If the input contains a valid date-time, parse and normalize it into the required format.
+- If the date-time is missing, null, empty, or invalid, generate the current date-time using the system's current time and timezone.
+- Ensure the final value can be successfully parsed by Rust's chrono::DateTime or an equivalent Rust date-time parser.
+- Never generate an arbitrary or hardcoded date-time.
+
+Expected outcome: date_time must always contain a valid, non-empty, timezone-aware RFC 3339 date-time string.
 "#;
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone)]
 pub struct AppConfig {
     pub model_api_key: String,
     pub model_name: String,
@@ -107,12 +113,20 @@ pub struct AppConfig {
     pub max_tokens: u32,
     pub port: u16,
     pub system_command: String,
+    pub database_pool: sqlx::PgPool,
 }
 
 impl AppConfig {
-    pub fn load() -> Self {
+    pub async fn load() -> Result<Self> {
         dotenvy::dotenv().ok();
-        Self {
+
+        let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL not set");
+
+        let database_pool = database::connection::connect_database(&database_url)
+            .await
+            .context("failed to connect to database")?;
+
+        Ok(Self {
             model_api_key: std::env::var("MODEL_API_KEY").expect("MODEL_API_KEY not set"),
             model_name: std::env::var("MODEL_NAME").unwrap_or_else(|_| "deepseek-chat".to_string()),
             max_tokens: std::env::var("MAX_TOKENS")
@@ -126,6 +140,7 @@ impl AppConfig {
             system_command: SYSTEM_PROMPT.to_string(),
             model_route: std::env::var("MODEL_ROUTE")
                 .unwrap_or_else(|_| "https://api.deepseek.com/v1/chat/completions".to_string()),
-        }
+            database_pool,
+        })
     }
 }

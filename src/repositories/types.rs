@@ -1,6 +1,5 @@
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 #[derive(Deserialize, Serialize)]
 pub struct Item {
@@ -14,7 +13,6 @@ pub struct Item {
 
 #[derive(Deserialize, Serialize)]
 pub struct Invoice {
-    pub id: Option<Uuid>,
     pub date_time: DateTime<FixedOffset>,
     pub items: Vec<Item>,
     pub subtotal: f32,
@@ -33,7 +31,6 @@ impl Invoice {
         transaction_number: String,
     ) -> Self {
         Self {
-            id: Some(Uuid::new_v4()),
             date_time,
             items,
             subtotal,

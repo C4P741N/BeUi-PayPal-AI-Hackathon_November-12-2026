@@ -21,9 +21,10 @@ source "$ENV_FILE"
 set +a
 
 # Validate required variable
-: "{$DATABASE_USER:?DATABASE_USER is missing from .env}"
-: "{$DATABASE_PASSWORD:?DATABASE_PASSWORD is missing from .env}"
-: "{$DATABASE_NAME:?DATABASE_NAME is missing from .env}"
+: "${DATABASE_USER:?DATABASE_USER is missing from .env}"
+: "${DATABASE_PASSWORD:?DATABASE_PASSWORD is missing from .env}"
+: "${DATABASE_NAME:?DATABASE_NAME is missing from .env}"
+: "${DATABASE_PORT:?DATABASE_PORT is missing from .env}"
 
 echo "Starting PostgreSQL..."
 
@@ -65,5 +66,14 @@ fi
 
 echo "Database is ready."
 
-echo "Starting application..."
-cargo run
+
+echo "Running migrations..."
+# Construct SQLx connection string
+export DATABASE_URL="postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@localhost:${DATABASE_PORT}/${DATABASE_NAME}"
+
+sqlx migrate run
+
+echo "Migrations initialized"
+
+#echo "Starting application..."
+#cargo run

@@ -9,15 +9,14 @@ pub async fn save_invoice(pool: &PgPool, invoice: &Invoice)
         sqlx::query(
             r#"
             INSERT INTO invoices 
-            (id, transaction_number, total, tax, subtotal, date_time,
+            (transaction_number, total, tax, subtotal, date_time,
             item_description, item_purchased_for, item_quantity, 
             item_tax_type, item_total_price, item_unit_price)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (transaction_number)
             DO NOTHING
             "#,
         )
-        .bind(invoice.id)
         .bind(&invoice.transaction_number)
         .bind(invoice.total)
         .bind(invoice.tax)

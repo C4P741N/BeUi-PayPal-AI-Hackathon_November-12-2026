@@ -4,7 +4,11 @@ use crate::config::AppConfig;
 
 use super::types::*;
 use indicatif::{ProgressBar, ProgressStyle};
-use reqwest::Client;
+use reqwest::{
+    Client,
+    header::{ACCEPT, CONTENT_TYPE, HeaderMap},
+};
+use serde::{Serialize, de::DeserializeOwned};
 
 pub async fn send_request(
     config: &AppConfig,
@@ -70,7 +74,7 @@ pub async fn send_request(
     }
 
     let data: ChatResponse = res.json().await?;
-    
+
     println!("ChatResponse >> {:#?}", data);
 
     Ok(data
@@ -79,4 +83,56 @@ pub async fn send_request(
         .next()
         .map(|c| c.message.content)
         .unwrap_or_else(|| "No response".to_string()))
+}
+
+pub async fn send_post_request<T, R>(
+    access_token: &str,
+    data_url: &str,
+    payload: &T,
+    extra_headers: Option<HeaderMap>,
+) -> Result<R, Box<dyn std::error::Error + Send + Sync>>
+where
+    T: Serialize + ?Sized,
+    R: DeserializeOwned,
+{
+    let client = Client::new();
+
+    // Default headers
+    let mut headers = HeaderMap::new();
+
+    headers.insert(CONTENT_TYPE, "application/json".parse()?);
+
+    headers.insert(ACCEPT, "application/json".parse()?);
+
+    // Add custom headers
+    if let Some(custom_headers) = extra_headers {
+        headers.extend(custom_headers);
+    }
+
+    // Execute POST request
+    let response = client
+        .post(data_url)
+        .bearer_auth(access_token)
+        .headers(headers)
+        .json(payload)
+        .send()
+        .await?;
+
+    let status = response.status();
+
+    // Handle API errors
+    if !status.is_success() {
+        let error_body = response.text().await?;
+
+        return Err(format!(
+            "API request failed. Status: {}. Response: {}",
+            status, error_body
+        )
+        .into());
+    }
+
+    // Deserialize response
+    let result = response.json::<R>().await?;
+
+    Ok(result)
 }

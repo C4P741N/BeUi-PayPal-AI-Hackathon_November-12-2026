@@ -112,6 +112,9 @@ pub struct AppConfig {
     pub port: u16,
     pub system_command: String,
     pub database_pool: sqlx::PgPool,
+    pub paypal_access_token: String,
+    pub paypal_base_route: String,
+    pub paypal_create_invoice_route: String,
 }
 
 impl AppConfig {
@@ -131,6 +134,11 @@ impl AppConfig {
                 "failed to connect to the database url: {database_url}"
             ))?;
 
+        let paypal_base_route = std::env::var("PAYPAL_ROUTE")
+            .unwrap_or_else(|_| "https://api-m.sandbox.paypal.com/v2/".to_string());
+
+        let paypal_create_invoice_route = format!("{paypal_base_route}invoicing/invoices");
+
         Ok(Self {
             model_api_key: std::env::var("MODEL_API_KEY").expect("MODEL_API_KEY not set"),
             model_name: std::env::var("MODEL_NAME").unwrap_or_else(|_| "deepseek-chat".to_string()),
@@ -146,6 +154,16 @@ impl AppConfig {
             model_route: std::env::var("MODEL_ROUTE")
                 .unwrap_or_else(|_| "https://api.deepseek.com/v1/chat/completions".to_string()),
             database_pool,
+            paypal_access_token: std::env::var("PAYPAL_ACCESS_TOKEN").expect("PAYPAL_ACCESS_TOKEN not set"),
+            paypal_base_route,
+            paypal_create_invoice_route,
         })
+    }
+
+    pub fn get_paypal_send_invoice_route(&self, invoice_id: &str) -> String {
+        format!(
+            "{}/invoicing/invoices/{}/send",
+            self.paypal_base_route, invoice_id
+        )
     }
 }

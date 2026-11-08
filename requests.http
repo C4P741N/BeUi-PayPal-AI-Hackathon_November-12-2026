@@ -1,4 +1,4 @@
-@baseUrl = http://localhost:3000
+@baseUrl = http://localhost:3000 
 
 ### Process image with command
 curl -X POST {{baseUrl}}/convert \

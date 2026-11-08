@@ -1,8 +1,11 @@
 use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub struct Item {
+    #[serde(default = "generate_uuid")]
+    pub id: Option<Uuid>,
     pub description: String,
     pub purchased_for: String,
     pub quantity: f32,
@@ -10,7 +13,9 @@ pub struct Item {
     pub total_price: f32,
     pub unit_price: f32,
 }
-
+fn generate_uuid() -> Option<Uuid> {
+    Some(Uuid::new_v4())
+}
 #[derive(Deserialize, Serialize)]
 pub struct Invoice {
     pub date_time: DateTime<FixedOffset>,
@@ -20,23 +25,23 @@ pub struct Invoice {
     pub total: f32,
     pub transaction_number: String,
 }
-
-impl Invoice {
+impl Item {
     pub fn new(
-        date_time: DateTime<FixedOffset>,
-        items: Vec<Item>,
-        subtotal: f32,
-        tax: f32,
-        total: f32,
-        transaction_number: String,
+        description: String,
+        purchased_for: String,
+        quantity: f32,
+        tax_type: String,
+        total_price: f32,
+        unit_price: f32,
     ) -> Self {
         Self {
-            date_time,
-            items,
-            subtotal,
-            tax,
-            total,
-            transaction_number,
+            id: Some(Uuid::new_v4()),
+            description,
+            purchased_for,
+            quantity,
+            tax_type,
+            total_price,
+            unit_price,
         }
     }
 }

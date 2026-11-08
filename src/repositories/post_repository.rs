@@ -10,7 +10,7 @@ pub async fn save_invoice(pool: &PgPool, invoice: &Invoice)
             r#"
             INSERT INTO invoices 
             (id, transaction_number, total, tax, subtotal, date_time,
-            item_description, item_purchase_for, item_quantity, 
+            item_description, item_purchased_for, item_quantity, 
             item_tax_type, item_total_price, item_unit_price)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             ON CONFLICT (transaction_number)
@@ -24,7 +24,7 @@ pub async fn save_invoice(pool: &PgPool, invoice: &Invoice)
         .bind(invoice.subtotal)
         .bind(invoice.date_time)
         .bind(&item.description)
-        .bind(&item.purchase_for)
+        .bind(&item.purchased_for)
         .bind(item.quantity)
         .bind(&item.tax_type)
         .bind(item.total_price)

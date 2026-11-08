@@ -1,7 +1,5 @@
 use anyhow::{Context, Result};
 
-use crate::database;
-
 pub static SYSTEM_PROMPT: &str = r#"
 You are a receipt extraction and purchase allocation engine.
 
@@ -120,11 +118,18 @@ impl AppConfig {
     pub async fn load() -> Result<Self> {
         dotenvy::dotenv().ok();
 
-        let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL not set");
+        let db_user = std::env::var("DATABASE_USER").expect("DATABASE_USER not set");
+        let db_pass = std::env::var("DATABASE_PASSWORD").expect("DATABASE_PASSWORD not set");
+        let db_name = std::env::var("DATABASE_NAME").expect("DATABASE_NAME not set");
+        let db_port = std::env::var("DATABASE_PORT").expect("DATABASE_PORT not set");
 
-        let database_pool = database::connection::connect_database(&database_url)
+        let database_url = format!("postgres://{db_user}:{db_pass}@localhost:{db_port}/{db_name}");
+
+        let database_pool = crate::database::connection::connect_database(&database_url)
             .await
-            .context("failed to connect to database")?;
+            .context(format!(
+                "failed to connect to the database url: {database_url}"
+            ))?;
 
         Ok(Self {
             model_api_key: std::env::var("MODEL_API_KEY").expect("MODEL_API_KEY not set"),

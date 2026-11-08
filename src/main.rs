@@ -2,6 +2,7 @@ mod api;
 mod config;
 mod image;
 mod routes;
+mod database;
 
 use anyhow::Context;
 use axum::{Router, routing::post};

@@ -6,7 +6,7 @@ pub async fn connect_database(database_url: &str) -> Result<PgPool, sqlx::Error>
         .connect(database_url)
         .await?;
 
-    println!("PostgreSQQL connected!");
+    println!("PostgreSQL connected!");
 
     Ok(pool)
 }

@@ -5,7 +5,7 @@ use uuid::Uuid;
 #[derive(Deserialize, Serialize)]
 pub struct Item {
     pub description: String,
-    pub purchase_for: String,
+    pub purchased_for: String,
     pub quantity: f32,
     pub tax_type: String,
     pub total_price: f32,
@@ -14,7 +14,7 @@ pub struct Item {
 
 #[derive(Deserialize, Serialize)]
 pub struct Invoice {
-    pub id: Uuid,
+    pub id: Option<Uuid>,
     pub date_time: DateTime<FixedOffset>,
     pub items: Vec<Item>,
     pub subtotal: f32,
@@ -25,7 +25,6 @@ pub struct Invoice {
 
 impl Invoice {
     pub fn new(
-        id: Uuid,
         date_time: DateTime<FixedOffset>,
         items: Vec<Item>,
         subtotal: f32,
@@ -34,7 +33,7 @@ impl Invoice {
         transaction_number: String,
     ) -> Self {
         Self {
-            id: Uuid::new_v4(),
+            id: Some(Uuid::new_v4()),
             date_time,
             items,
             subtotal,

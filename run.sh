@@ -75,5 +75,5 @@ sqlx migrate run
 
 echo "Migrations initialized"
 
-#echo "Starting application..."
-#cargo run
+echo "Starting application..."
+cargo run

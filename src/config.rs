@@ -115,6 +115,12 @@ pub struct AppConfig {
     pub paypal_access_token: String,
     pub paypal_base_route: String,
     pub paypal_create_invoice_route: String,
+    pub paypal_invoicer_email: String,
+    pub paypal_invoicer_first_name: String,
+    pub paypal_invoicer_last_name: String,
+    pub paypal_recipient_email: String,
+    pub paypal_recipient_first_name: String,
+    pub paypal_recipient_last_name: String,
 }
 
 impl AppConfig {
@@ -154,15 +160,22 @@ impl AppConfig {
             model_route: std::env::var("MODEL_ROUTE")
                 .unwrap_or_else(|_| "https://api.deepseek.com/v1/chat/completions".to_string()),
             database_pool,
-            paypal_access_token: std::env::var("PAYPAL_ACCESS_TOKEN").expect("PAYPAL_ACCESS_TOKEN not set"),
+            paypal_access_token: std::env::var("PAYPAL_ACCESS_TOKEN")
+                .expect("PAYPAL_ACCESS_TOKEN not set"),
             paypal_base_route,
             paypal_create_invoice_route,
+            paypal_invoicer_email: "sb-mk77o53121570@business.example.com".to_string(),
+            paypal_invoicer_first_name: "John".to_string(),
+            paypal_invoicer_last_name: "Doe".to_string(),
+            paypal_recipient_email: "sb-6hvql53243495@personal.example.com".to_string(),
+            paypal_recipient_first_name: "Marry".to_string(),
+            paypal_recipient_last_name: "Jane".to_string()
         })
     }
 
     pub fn get_paypal_send_invoice_route(&self, invoice_id: &str) -> String {
         format!(
-            "{}/invoicing/invoices/{}/send",
+            "{}invoicing/invoices/{}/send",
             self.paypal_base_route, invoice_id
         )
     }

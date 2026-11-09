@@ -1,5 +1,6 @@
-use chrono::{DateTime, FixedOffset};
+use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -44,4 +45,80 @@ impl Item {
             unit_price,
         }
     }
+}
+
+#[derive(Debug, FromRow)]
+pub struct InvoiceItem {
+    pub id: Uuid,
+    pub transaction_number: String,
+    pub total: f64,
+    pub tax: f64,
+    pub subtotal: f64,
+    pub date_time: DateTime<Utc>,
+    pub item_description: String,
+    pub item_purchased_for: String,
+    pub item_quantity: f64,
+    pub item_tax_type: String,
+    pub item_total_price: f64,
+    pub item_unit_price: f64,
+    pub item_status: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PayPalInvoicePayload {
+    pub detail: PayPalInvoiceDetail,
+    pub invoicer: PayPalInvoicer,
+    pub primary_recipients: Vec<PayPalRecipient>,
+    pub items: Vec<PayPalItem>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PayPalInvoiceDetail {
+    pub invoice_number: String,
+    pub invoice_date: String,
+    pub currency_code: String,
+    pub note: String,
+    pub payment_term: PayPalPaymentTerm,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PayPalPaymentTerm {
+    pub term_type: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PayPalInvoicer {
+    pub email_address: String,
+    pub name: PayPalName,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PayPalRecipient {
+    pub billing_info: PayPalBillingInfo,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PayPalBillingInfo {
+    pub email_address: String,
+    pub name: PayPalName,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PayPalName {
+    pub given_name: String,
+    pub surname: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PayPalItem {
+    pub name: String,
+    pub description: String,
+    pub quantity: String,
+    pub unit_amount: PayPalAmount,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PayPalAmount {
+    pub currency_code: String,
+    pub value: String,
 }

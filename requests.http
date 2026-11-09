@@ -8,3 +8,10 @@ curl -X POST {{baseUrl}}/convert \
 "prompt": "i paid for johns shampoo and for janes conditioner"
 }'
 ### 72987869213046140
+
+### Process image with command
+curl -X POST {{baseUrl}}/invoice \
+ -H "Content-Type: application/json" \
+ -d '{
+"transaction_number": "72987869213046140"
+}

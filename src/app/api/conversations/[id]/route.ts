@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { db } from '@/lib/db'
+import { deleteConversation, getConversation, renameConversation } from '@/lib/store'
 import type { ReceiptPayload } from '@/components/chatgpt/types'
 
 export const runtime = 'nodejs'
@@ -21,10 +21,7 @@ function safeParseReceipt(json: string): ReceiptPayload | null {
 export async function GET(_req: NextRequest, { params }: Params) {
   try {
     const { id } = await params
-    const conversation = await db.conversation.findUnique({
-      where: { id },
-      include: { messages: { orderBy: { createdAt: 'asc' } } },
-    })
+    const conversation = getConversation(id)
     if (!conversation) {
       return Response.json({ error: 'Conversation not found' }, { status: 404 })
     }
@@ -54,10 +51,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (!body.title || !body.title.trim()) {
       return Response.json({ error: 'title is required' }, { status: 400 })
     }
-    const conversation = await db.conversation.update({
-      where: { id },
-      data: { title: body.title.trim().slice(0, 80) },
-    })
+    const conversation = renameConversation(id, body.title)
+    if (!conversation) {
+      return Response.json({ error: 'Conversation not found' }, { status: 404 })
+    }
     return Response.json(conversation)
   } catch (error) {
     console.error('Update conversation error:', error)
@@ -68,7 +65,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 export async function DELETE(_req: NextRequest, { params }: Params) {
   try {
     const { id } = await params
-    await db.conversation.delete({ where: { id } })
+    if (!deleteConversation(id)) {
+      return Response.json({ error: 'Conversation not found' }, { status: 404 })
+    }
     return Response.json({ ok: true })
   } catch (error) {
     console.error('Delete conversation error:', error)

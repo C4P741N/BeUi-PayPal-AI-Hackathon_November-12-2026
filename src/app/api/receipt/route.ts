@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { randomUUID } from 'crypto'
-import { db } from '@/lib/db'
+import { createMessage, getConversation } from '@/lib/store'
 import type { ReceiptItem, ReceiptPayload } from '@/components/chatgpt/types'
 
 export const runtime = 'nodejs'
@@ -28,7 +28,7 @@ export const maxDuration = 120
  * expects the receipt payload JSON (see ReceiptPayload in
  * src/components/chatgpt/types.ts) as the response body. The user's typed
  * instructions are NOT sent to the backend (per the contract curl) — they are
- * stored with the conversation in this app's database.
+ * stored with the conversation in this app's in-memory store.
  *
  * Without RECEIPT_BACKEND_URL the route returns the demo payload example.
  * ───────────────────────────────────────────────────────────────────────────
@@ -182,25 +182,21 @@ export async function POST(req: NextRequest) {
     let id = `a-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
     let userMessageId: string | undefined
     if (!isTemporary) {
-      const conversation = await db.conversation.findUnique({ where: { id: conversationId } })
+      const conversation = getConversation(conversationId)
       if (conversation) {
-        const savedUser = await db.message.create({
-          data: { conversationId, role: 'user', content: text?.trim() ?? '' },
+        const savedUser = createMessage({
+          conversationId,
+          role: 'user',
+          content: text?.trim() ?? '',
         })
-        userMessageId = savedUser.id
-        const saved = await db.message.create({
-          data: {
-            conversationId,
-            role: 'assistant',
-            content: '',
-            receiptJson: JSON.stringify(receipt),
-          },
+        userMessageId = savedUser?.id
+        const saved = createMessage({
+          conversationId,
+          role: 'assistant',
+          content: '',
+          receiptJson: JSON.stringify(receipt),
         })
-        await db.conversation.update({
-          where: { id: conversationId },
-          data: { updatedAt: new Date() },
-        })
-        id = saved.id
+        if (saved) id = saved.id
       }
     }
 

@@ -8,9 +8,9 @@
 #                                        the order they were created)
 #   scripts/savepoint.sh revert <n>      revert project to save point n
 #
-# Save points capture the full project state, including the chat
-# database in db/, so reverting also restores the conversations that
-# existed when the save point was created.
+# Save points capture the full project state. Note: chats are kept in an
+# in-memory store (src/lib/store.ts), so a revert does not restore past
+# conversations — only the code and files.
 # ─────────────────────────────────────────────────────────────────────
 set -euo pipefail
 cd "$(dirname "$0")/.."   # always operate from the project root
@@ -52,7 +52,7 @@ case "$CMD" in
     LABEL=$(echo "$SAVEPOINTS" | sed -n "${N}p" | cut -d' ' -f2-)
     git reset --hard -q "$HASH"
     # Remove files that were created after the save point (source dirs only).
-    git clean -fdq src prisma public mini-services examples
+    git clean -fdq src public mini-services examples
     echo "✔ Reverted to save point #${N}: $LABEL"
     git log -1 --format='  %h  %s  (%ci)'
     echo "  The dev server will hot-reload automatically."

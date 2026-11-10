@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import ZAI from 'z-ai-web-dev-sdk'
-import { db } from '@/lib/db'
+import { createMessage, deleteMessage, getConversation, getLastMessage } from '@/lib/store'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -55,42 +55,31 @@ export async function POST(req: NextRequest) {
     // Temporary chats (client-only, never persisted)
     const isTemporary = conversationId.startsWith('temp-')
 
-    if (!isTemporary) {
-      const conversation = await db.conversation.findUnique({
-        where: { id: conversationId },
-      })
-      if (!conversation) {
-        return Response.json({ error: 'Conversation not found' }, { status: 404 })
-      }
+    if (!isTemporary && !getConversation(conversationId)) {
+      return Response.json({ error: 'Conversation not found' }, { status: 404 })
     }
 
     let savedUserMessageId: string | undefined
 
     if (!isTemporary) {
       if (regenerate) {
-        const lastAssistant = await db.message.findFirst({
-          where: { conversationId, role: 'assistant' },
-          orderBy: { createdAt: 'desc' },
-        })
+        const lastAssistant = getLastMessage(conversationId, 'assistant')
         if (lastAssistant) {
-          await db.message.delete({ where: { id: lastAssistant.id } })
+          deleteMessage(lastAssistant.id)
         }
       } else {
-        const savedUser = await db.message.create({
-          data: { conversationId, role: 'user', content: content?.trim() ?? '' },
+        const savedUser = createMessage({
+          conversationId,
+          role: 'user',
+          content: content?.trim() ?? '',
         })
-        savedUserMessageId = savedUser.id
+        savedUserMessageId = savedUser?.id
       }
     }
 
     const historyMessages: { role: 'user' | 'assistant'; content: string }[] = isTemporary
       ? [...history, { role: 'user' as const, content: content?.trim() ?? '' }]
-      : (
-          await db.message.findMany({
-            where: { conversationId },
-            orderBy: { createdAt: 'asc' },
-          })
-        ).map((m) => ({
+      : (getConversation(conversationId)?.messages ?? []).map((m) => ({
           role: m.role as 'user' | 'assistant',
           content: m.content,
         }))
@@ -218,14 +207,12 @@ export async function POST(req: NextRequest) {
         // Persist whatever was generated (full or partial on abort)
         if (full.trim()) {
           if (!isTemporary) {
-            const saved = await db.message.create({
-              data: { conversationId, role: 'assistant', content: full },
+            const saved = createMessage({
+              conversationId,
+              role: 'assistant',
+              content: full,
             })
-            await db.conversation.update({
-              where: { id: conversationId },
-              data: { updatedAt: new Date() },
-            })
-            send({ type: 'done', messageId: saved.id })
+            send({ type: 'done', messageId: saved?.id })
           } else {
             send({ type: 'done' })
           }

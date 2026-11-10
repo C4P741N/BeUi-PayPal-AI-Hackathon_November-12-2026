@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { db } from '@/lib/db'
+import { getMessage, truncateMessagesFrom } from '@/lib/store'
 
 export const runtime = 'nodejs'
 
@@ -18,17 +18,12 @@ export async function DELETE(req: NextRequest, { params }: Params) {
       return Response.json({ error: 'messageId is required' }, { status: 400 })
     }
 
-    const anchor = await db.message.findUnique({ where: { id: body.messageId } })
+    const anchor = getMessage(body.messageId)
     if (!anchor || anchor.conversationId !== id) {
       return Response.json({ error: 'Message not found' }, { status: 404 })
     }
 
-    await db.message.deleteMany({
-      where: {
-        conversationId: id,
-        createdAt: { gte: anchor.createdAt },
-      },
-    })
+    truncateMessagesFrom(id, body.messageId)
 
     return Response.json({ ok: true })
   } catch (error) {

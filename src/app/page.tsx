@@ -246,7 +246,10 @@ export default function ChatGPTClone() {
           body: JSON.stringify({ conversationId, imageUrl, text }),
           signal: controller.signal,
         })
-        if (!res.ok) throw new Error('Receipt request failed')
+        if (!res.ok) {
+          const errBody = (await res.json().catch(() => null)) as { error?: string } | null
+          throw new Error(errBody?.error || 'Receipt request failed')
+        }
         const data = (await res.json()) as {
           id?: string
           userMessageId?: string
@@ -292,7 +295,12 @@ export default function ChatGPTClone() {
         if (aborted) {
           setComposerOpen(true)
         } else {
-          toast({ description: 'Could not process the receipt. Please try again.' })
+          toast({
+            description:
+              err instanceof Error && err.message
+                ? err.message
+                : 'Could not process the receipt. Please try again.',
+          })
         }
       } finally {
         abortRef.current = null

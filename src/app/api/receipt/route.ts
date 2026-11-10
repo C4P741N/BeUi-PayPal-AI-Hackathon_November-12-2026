@@ -16,8 +16,8 @@ export const maxDuration = 120
  * the response.
  *
  * ── Connecting YOUR backend ────────────────────────────────────────────────
- * Set RECEIPT_BACKEND_URL in the environment (the backend's base URL, e.g.
- * http://localhost:3000). On submit this route then sends, exactly like the
+ * RECEIPT_BACKEND_URL is required (the backend's base URL, e.g.
+ * http://localhost:3001). On submit this route sends, exactly like the
  * contract curl:
  *
  *   curl -X POST {RECEIPT_BACKEND_URL}/convert \
@@ -26,11 +26,13 @@ export const maxDuration = 120
  *
  * i.e. the base64 string WITHOUT the `data:image/...;base64,` prefix, and
  * expects the receipt payload JSON (see ReceiptPayload in
- * src/components/chatgpt/types.ts) as the response body. The user's typed
- * instructions are NOT sent to the backend (per the contract curl) — they are
- * stored with the conversation in this app's in-memory store.
+ * src/components/chatgpt/types.ts) as the response body — the payload the
+ * backend returns IS the response; there is no demo fallback. The user's
+ * typed instructions are NOT sent to the backend (per the contract curl) —
+ * they are stored with the conversation in this app's in-memory store.
  *
- * Without RECEIPT_BACKEND_URL the route returns the demo payload example.
+ * Errors: 503 when RECEIPT_BACKEND_URL is unset; 502 when the backend is
+ * unreachable or its response does not match the payload structure.
  * ───────────────────────────────────────────────────────────────────────────
  */
 
@@ -38,44 +40,6 @@ interface ReceiptRequestBody {
   conversationId?: string
   imageUrl?: string
   text?: string
-}
-
-/** Payload example returned by the (demo) receipt-processing backend. */
-const DEMO_RECEIPT: ReceiptPayload = {
-  date_time: '2020-10-18T20:24:00Z',
-  items: [
-    {
-      id: '0cd95972-5e2c-4f99-a12e-047bf9d07a5e',
-      description: 'Shampoo',
-      purchased_for: 'john',
-      quantity: 1.0,
-      tax_type: 'T',
-      total_price: 4.65,
-      unit_price: 4.65,
-    },
-    {
-      id: '9ab9c254-af24-4291-b485-7bd829593e5b',
-      description: 'Conditioner',
-      purchased_for: 'jane',
-      quantity: 1.0,
-      tax_type: 'N',
-      total_price: 7.89,
-      unit_price: 7.89,
-    },
-    {
-      id: 'd5ff5eb4-f5d7-4964-a063-9c696491b091',
-      description: 'Go Chocolates',
-      purchased_for: 'self',
-      quantity: 2.0,
-      tax_type: 'N',
-      total_price: 17.98,
-      unit_price: 17.98,
-    },
-  ],
-  subtotal: 30.52,
-  tax: 2.98,
-  total: 33.5,
-  transaction_number: '72987869213046140',
 }
 
 const num = (v: unknown, fallback = 0): number => {
@@ -139,24 +103,43 @@ function toRawBase64(dataUrl: string): string {
   return idx >= 0 ? dataUrl.slice(idx + marker.length) : dataUrl
 }
 
-/** Forward to the user's real receipt-processing backend, if configured.
- *  Contract: POST {RECEIPT_BACKEND_URL}/convert  body { image: <base64> }. */
+/** Forward to the user's receipt-processing backend.
+ *  Contract: POST {RECEIPT_BACKEND_URL}/convert  body { image: <base64> }.
+ *  The backend's response payload IS the result — never a demo fallback. */
 async function callBackend(
   backendBase: string,
   imageUrl: string
-): Promise<ReceiptPayload | null> {
+): Promise<{ ok: true; receipt: ReceiptPayload } | { ok: false; status: number; error: string }> {
+  const base = backendBase.replace(/\/+$/, '')
   try {
-    const base = backendBase.replace(/\/+$/, '')
     const res = await fetch(`${base}/convert`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: toRawBase64(imageUrl) }),
       signal: AbortSignal.timeout(60_000),
     })
-    if (!res.ok) return null
-    return normalizeReceipt(await res.json())
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: 502,
+        error: `Receipt backend responded with HTTP ${res.status}`,
+      }
+    }
+    const receipt = normalizeReceipt(await res.json())
+    if (!receipt) {
+      return {
+        ok: false,
+        status: 502,
+        error: 'Receipt backend returned an invalid payload',
+      }
+    }
+    return { ok: true, receipt }
   } catch {
-    return null
+    return {
+      ok: false,
+      status: 502,
+      error: `Could not reach the receipt backend at ${base}/convert`,
+    }
   }
 }
 
@@ -172,10 +155,22 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: 'Image is too large' }, { status: 400 })
     }
 
-    // Real backend when configured, otherwise the demo payload example.
+    // The receipt-processing backend is required — its response IS the result.
     const backendUrl = process.env.RECEIPT_BACKEND_URL
-    const receipt =
-      (backendUrl ? await callBackend(backendUrl, imageUrl) : null) ?? DEMO_RECEIPT
+    if (!backendUrl) {
+      return Response.json(
+        {
+          error:
+            'Receipt backend is not configured. Set RECEIPT_BACKEND_URL (e.g. http://localhost:3001).',
+        },
+        { status: 503 }
+      )
+    }
+    const result = await callBackend(backendUrl, imageUrl)
+    if (!result.ok) {
+      return Response.json({ error: result.error }, { status: result.status })
+    }
+    const receipt = result.receipt
 
     const isTemporary = !conversationId || conversationId.startsWith('temp-')
 

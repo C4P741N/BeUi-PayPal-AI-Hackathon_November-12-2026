@@ -9,6 +9,7 @@ clear
 ENV_FILE=".env"
 COMPOSE_FILE="docker-compose.pgsql.yml"
 
+
 # Ensure .env esists
 if [ ! -f "$ENV_FILE" ]; then
     echo "ERROR: .env file not found!"
@@ -70,6 +71,34 @@ echo "Database is ready."
 echo "Running migrations..."
 # Construct SQLx connection string
 export DATABASE_URL="postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@localhost:${DATABASE_PORT}/${DATABASE_NAME}"
+
+# --- Ensure sqlx-cli is installed -----------------------------------------
+if ! command -v sqlx >/dev/null 2>&1; then
+    echo "sqlx not found — installing sqlx-cli..."
+
+    if command -v cargo >/dev/null 2>&1; then
+        # Preferred: install via cargo (no root needed, goes to ~/.cargo/bin)
+        cargo install sqlx-cli --no-default-features --features rustls,postgres
+    else
+        echo "ERROR: neither 'sqlx' nor 'cargo' is available." >&2
+        echo "Install Rust (https://rustup.rs) and re-run, or install sqlx-cli manually:" >&2
+        echo "  https://github.com/launchbadge/sqlx/tree/main/sqlx-cli" >&2
+        exit 1
+    fi
+
+    # cargo installs into ~/.cargo/bin, which may not be on PATH in this shell yet
+    if ! command -v sqlx >/dev/null 2>&1; then
+        export PATH="$HOME/.cargo/bin:$PATH"
+    fi
+
+    if ! command -v sqlx >/dev/null 2>&1; then
+        echo "ERROR: sqlx-cli installation finished but 'sqlx' is still not on PATH." >&2
+        echo "Add \$HOME/.cargo/bin to your PATH and re-run." >&2
+        exit 1
+    fi
+
+    echo "sqlx-cli installed: $(sqlx --version)"
+fi
 
 sqlx migrate run
 

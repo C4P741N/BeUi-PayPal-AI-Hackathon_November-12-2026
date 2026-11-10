@@ -16,10 +16,19 @@ export const maxDuration = 120
  * the response.
  *
  * ── Connecting YOUR backend ────────────────────────────────────────────────
- * Set RECEIPT_BACKEND_URL in the environment. This route will then POST:
- *   { image: <data URL of the receipt>, text: <user instructions> }
- * to that URL and expect the receipt payload JSON (see ReceiptPayload in
- * src/components/chatgpt/types.ts) as the response body.
+ * Set RECEIPT_BACKEND_URL in the environment (the backend's base URL, e.g.
+ * http://localhost:3000). On submit this route then sends, exactly like the
+ * contract curl:
+ *
+ *   curl -X POST {RECEIPT_BACKEND_URL}/convert \
+ *     -H "Content-Type: application/json" \
+ *     -d '{ "image": "<raw base64 of the receipt image>" }'
+ *
+ * i.e. the base64 string WITHOUT the `data:image/...;base64,` prefix, and
+ * expects the receipt payload JSON (see ReceiptPayload in
+ * src/components/chatgpt/types.ts) as the response body. The user's typed
+ * instructions are NOT sent to the backend (per the contract curl) — they are
+ * stored with the conversation in this app's database.
  *
  * Without RECEIPT_BACKEND_URL the route returns the demo payload example.
  * ───────────────────────────────────────────────────────────────────────────
@@ -122,17 +131,26 @@ function normalizeReceipt(raw: unknown): ReceiptPayload | null {
   return { date_time: dateTime, items, subtotal, tax, total, transaction_number: txNumber }
 }
 
-/** Forward to the user's real receipt-processing backend, if configured. */
+/** Extract the raw base64 string from an image data URL
+ *  ("data:image/png;base64,iVBOR…" → "iVBOR…"). */
+function toRawBase64(dataUrl: string): string {
+  const marker = 'base64,'
+  const idx = dataUrl.indexOf(marker)
+  return idx >= 0 ? dataUrl.slice(idx + marker.length) : dataUrl
+}
+
+/** Forward to the user's real receipt-processing backend, if configured.
+ *  Contract: POST {RECEIPT_BACKEND_URL}/convert  body { image: <base64> }. */
 async function callBackend(
-  backendUrl: string,
-  imageUrl: string,
-  text: string
+  backendBase: string,
+  imageUrl: string
 ): Promise<ReceiptPayload | null> {
   try {
-    const res = await fetch(backendUrl, {
+    const base = backendBase.replace(/\/+$/, '')
+    const res = await fetch(`${base}/convert`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: imageUrl, text: text?.trim() ?? '' }),
+      body: JSON.stringify({ image: toRawBase64(imageUrl) }),
       signal: AbortSignal.timeout(60_000),
     })
     if (!res.ok) return null
@@ -157,7 +175,7 @@ export async function POST(req: NextRequest) {
     // Real backend when configured, otherwise the demo payload example.
     const backendUrl = process.env.RECEIPT_BACKEND_URL
     const receipt =
-      (backendUrl ? await callBackend(backendUrl, imageUrl, text ?? '') : null) ?? DEMO_RECEIPT
+      (backendUrl ? await callBackend(backendUrl, imageUrl) : null) ?? DEMO_RECEIPT
 
     const isTemporary = !conversationId || conversationId.startsWith('temp-')
 

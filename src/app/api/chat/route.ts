@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
     const zai = await ZAI.create()
 
     const textMessages = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system' as const, content: systemPrompt },
       ...historyMessages,
     ]
 

@@ -1,0 +1,9 @@
+**/.env
+**/.env.*
+!**/.env.example
+**/.z-ai-config
+**/node_modules/
+**/.next/
+**/target/
+**/db-data/
+*.log

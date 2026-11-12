@@ -66,7 +66,7 @@ function normalizeReceipt(raw: unknown): ReceiptPayload | null {
       description,
       purchased_for:
         typeof e.purchased_for === 'string' && e.purchased_for.trim()
-          ? e.purchased_for.trim().toLowerCase()
+          ? e.purchased_for.trim()
           : 'self',
       quantity: num(e.quantity, 1),
       tax_type: taxRaw === 'T' ? 'T' : 'N',

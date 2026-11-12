@@ -7,8 +7,6 @@ import type { ReceiptItem, ReceiptPayload } from './types'
 
 const money = (n: number) => `$${n.toFixed(2)}`
 
-const capitalize = (name: string) => name.charAt(0).toUpperCase() + name.slice(1)
-
 interface Debtor {
   name: string
   amount: number
@@ -21,19 +19,22 @@ interface Debtor {
  * items owe no tax.
  */
 function buildDebtors(receipt: ReceiptPayload): Debtor[] {
-  const shares = new Map<string, { items: number; taxable: number }>()
+  const shares = new Map<string, { name: string; items: number; taxable: number }>()
   for (const item of receipt.items) {
-    const entry = shares.get(item.purchased_for) ?? { items: 0, taxable: 0 }
+    const name = item.purchased_for.trim() || 'self'
+    const key = name.toLowerCase()
+    const entry = shares.get(key) ?? { name, items: 0, taxable: 0 }
     entry.items += item.total_price
     if (item.tax_type === 'T') entry.taxable += item.total_price
-    shares.set(item.purchased_for, entry)
+    shares.set(key, entry)
   }
-  const totalTaxable = [...shares.values()].reduce((sum, s) => sum + s.taxable, 0)
-  return [...shares.entries()]
-    .filter(([name]) => name && name !== 'self')
-    .map(([name, s]) => ({
-      name,
-      amount: s.items + (totalTaxable > 0 ? (receipt.tax * s.taxable) / totalTaxable : 0),
+  const totalTaxable = [...shares.values()].reduce((sum, share) => sum + share.taxable, 0)
+  return [...shares.values()]
+    .filter(({ name }) => name.toLowerCase() !== 'self')
+    .map((share) => ({
+      name: share.name,
+      amount:
+        share.items + (totalTaxable > 0 ? (receipt.tax * share.taxable) / totalTaxable : 0),
     }))
     .sort((a, b) => b.amount - a.amount)
 }
@@ -80,25 +81,47 @@ export function ReceiptCard({ receipt }: { receipt: ReceiptPayload }) {
         invoice_id?: string
         invoice_status?: string
         already_exists?: boolean
+        invoices?: {
+          recipient_name: string
+          invoice_id: string
+          invoice_status: string
+          already_exists: boolean
+        }[]
+        failures?: { recipient_name: string; error: string }[]
       } | null
       if (!result) {
         throw new Error('Invoice backend returned an invalid response. Check PayPal before retrying.')
       }
 
       if (!response.ok || !result.success) {
-        const invoiceNote = result.invoice_id ? ` PayPal invoice ID: ${result.invoice_id}.` : ''
+        const completed = result.invoices
+          ?.map((invoice) => `${invoice.recipient_name} (${invoice.invoice_id})`)
+          .join(', ')
+        const invoiceNote = completed
+          ? ` Already processed: ${completed}.`
+          : result.invoice_id
+            ? ` PayPal invoice ID: ${result.invoice_id}.`
+            : ''
+        const failureNote = result.failures?.length
+          ? ` ${result.failures.map((failure) => `${failure.recipient_name}: ${failure.error}`).join('; ')}`
+          : ''
         throw new Error(
-          `${result.error || 'Could not send the PayPal invoice.'}${invoiceNote} Check PayPal before retrying to avoid duplicates.`
+          `${result.error || 'Could not send PayPal invoices.'}${invoiceNote}${failureNote} Already sent invoices will not be sent again on retry.`
         )
       }
 
       setInvoiced(true)
+      const recipients = result.invoices
+        ?.map((invoice) => `${invoice.recipient_name} (${invoice.invoice_id})`)
+        .join(', ')
       toast({
-        description: result.already_exists
-          ? `PayPal invoice ${result.invoice_id} already exists with status ${result.invoice_status ?? 'unknown'}; it was not sent again.`
-          : result.invoice_id
-            ? `PayPal invoice ${result.invoice_id} sent to the configured recipient.`
-            : 'PayPal invoice sent to the configured recipient.',
+        description: recipients
+          ? `PayPal invoices for ${recipients} were processed using the configured recipient email.`
+          : result.already_exists
+            ? `PayPal invoice ${result.invoice_id} already exists with status ${result.invoice_status ?? 'unknown'}; it was not sent again.`
+            : result.invoice_id
+              ? `PayPal invoice ${result.invoice_id} sent to the configured recipient email.`
+              : 'PayPal invoices sent to the configured recipient email.',
       })
     } catch (error) {
       toast({
@@ -184,8 +207,8 @@ export function ReceiptCard({ receipt }: { receipt: ReceiptPayload }) {
               disabled={sending || invoiced}
               title={
                 invoiced
-                  ? 'Invoice sent'
-                  : `Send a PayPal invoice for transaction ${receipt.transaction_number}`
+                  ? 'Invoices sent'
+                  : `Send PayPal invoices for transaction ${receipt.transaction_number}`
               }
               className="mt-1 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-60"
             >
@@ -196,7 +219,7 @@ export function ReceiptCard({ receipt }: { receipt: ReceiptPayload }) {
               ) : (
                 <HandCoins className="size-4" aria-hidden />
               )}
-              {invoiced ? 'Invoice sent' : sending ? 'Sending invoice…' : 'Send invoice now'}
+              {invoiced ? 'Invoices sent' : sending ? 'Sending invoices…' : 'Send invoices now'}
             </button>
           </div>
         )}

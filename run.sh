@@ -18,7 +18,7 @@ fi
 
 # Else load environment variables
 set -a
-source "$ENV_FILE"
+source <(sed 's/\r$//' "$ENV_FILE")
 set +a
 
 # Validate required variable
@@ -29,11 +29,22 @@ set +a
 
 echo "Starting PostgreSQL..."
 
+# Fall back to Docker Desktop's Windows CLI when Docker is unavailable in WSL.
+DOCKER_CLI="docker"
+if ! command -v "$DOCKER_CLI" >/dev/null 2>&1 || ! "$DOCKER_CLI" version >/dev/null 2>&1; then
+    WINDOWS_DOCKER=$(cmd.exe /c where docker 2>/dev/null | tr -d '\r' | grep -i '\.exe$' | head -n 1)
+    if [ -z "$WINDOWS_DOCKER" ]; then
+        echo "ERROR: Docker is unavailable in WSL and Docker Desktop was not found on Windows." >&2
+        exit 1
+    fi
+    DOCKER_CLI=$(wslpath "$WINDOWS_DOCKER")
+fi
+
 #ensure db is up
-docker compose -f "$COMPOSE_FILE" up -d
+"$DOCKER_CLI" compose -f "$COMPOSE_FILE" up -d
 
 # Get PostgreSQL container ID from Compose
-DB_CONTAINER=$(docker compose -f "$COMPOSE_FILE" ps -q postgres)
+DB_CONTAINER=$("$DOCKER_CLI" compose -f "$COMPOSE_FILE" ps -q postgres)
 
 if [ -z "$DB_CONTAINER" ]; then
     echo "ERROR: PostgreSQL container not found!"
@@ -42,7 +53,7 @@ fi
 
 echo "Waiting for PostgreSQL..."
 
-until docker exec "$DB_CONTAINER" \
+until "$DOCKER_CLI" exec "$DB_CONTAINER" \
     pg_isready -U "$DATABASE_USER" -d postgres; 
     do echo "PostgreSQL is not ready. Retrying..."
     sleep 2 
@@ -53,7 +64,7 @@ echo "PostgreSQL is ready."
 # Check whether the database exists
 echo "Checking database: $DATABASE_NAME"
 
-DB_EXISTS=$(docker exec \
+DB_EXISTS=$("$DOCKER_CLI" exec \
     -e PGPASSWORD="$DATABASE_PASSWORD" \
     "$DB_CONTAINER" \
     psql -U "$DATABASE_USER" -d postgres -tAc \
@@ -73,6 +84,10 @@ echo "Running migrations..."
 export DATABASE_URL="postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@localhost:${DATABASE_PORT}/${DATABASE_NAME}"
 
 # --- Ensure sqlx-cli is installed -----------------------------------------
+if [ -f "$HOME/.cargo/env" ]; then
+    source "$HOME/.cargo/env"
+fi
+
 if ! command -v sqlx >/dev/null 2>&1; then
     echo "sqlx not found — installing sqlx-cli..."
 

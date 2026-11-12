@@ -72,21 +72,12 @@ If the image is not a receipt, return:
 }
 
 
-CONTACT VALIDATION RULES:
-- Before processing purchase allocations, check whether the user provided
-  at least one valid contact/person to whom an item was purchased.
-- If the user provides no allocation instructions or does not mention
-  any identifiable person other than themselves, do not process the receipt.
-- In that case, return ONLY the following JSON:
-
-{
-  "error": "INVALID_CONTACT",
-  "message": "There were no valid contacts provided."
-}
-- Do not extract or return receipt information when this condition is met.
-- If at least one valid contact is provided, proceed with receipt extraction
-  and allocation.
-- Items not explicitly assigned to a named contact must be assigned to "self".
+CONTACT ALLOCATION RULES:
+- A named contact is optional. Always process a valid receipt even when the
+  user does not name another person.
+- Assign items explicitly associated with a named person to that person.
+- When no person is named, assign all items to "self" and return the full receipt payload.
+- Assign any other unassigned items to "self".
 - If a receipt reference is provided, use it as the value for transaction_number. If no receipt reference is provided or the value is null, empty, or blank, automatically generate a unique guuid identifier and assign it to receipt_ref.
 - Ensure that the generated identifier is a unique guuid, non-empty, and does not conflict with any existing receipt references. Never overwrite a valid receipt reference provided in the input.
 
@@ -112,15 +103,15 @@ pub struct AppConfig {
     pub port: u16,
     pub system_command: String,
     pub database_pool: sqlx::PgPool,
-    pub paypal_access_token: String,
+    pub paypal_client_id: String,
+    pub paypal_client_secret: String,
+    pub paypal_oauth_route: String,
     pub paypal_base_route: String,
     pub paypal_create_invoice_route: String,
     pub paypal_invoicer_email: String,
     pub paypal_invoicer_first_name: String,
     pub paypal_invoicer_last_name: String,
     pub paypal_recipient_email: String,
-    pub paypal_recipient_first_name: String,
-    pub paypal_recipient_last_name: String,
 }
 
 impl AppConfig {
@@ -143,6 +134,19 @@ impl AppConfig {
         let paypal_base_route = std::env::var("PAYPAL_ROUTE")
             .unwrap_or_else(|_| "https://api-m.sandbox.paypal.com/v2/".to_string());
 
+        let paypal_api_root = paypal_base_route.trim_end_matches('/');
+        let paypal_api_root = paypal_api_root.strip_suffix("/v2").unwrap_or(paypal_api_root);
+        let paypal_oauth_route = std::env::var("PAYPAL_OAUTH_ROUTE")
+            .unwrap_or_else(|_| format!("{paypal_api_root}/v1/oauth2/token"));
+
+        let paypal_client_id = std::env::var("PAYPAL_CLIENT_ID")
+            .context("PAYPAL_CLIENT_ID not set")?;
+        let paypal_client_secret = std::env::var("PAYPAL_CLIENT_SECRET")
+            .context("PAYPAL_CLIENT_SECRET not set")?;
+        if paypal_client_id.trim().is_empty() || paypal_client_secret.trim().is_empty() {
+            anyhow::bail!("PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET must not be empty");
+        }
+
         let paypal_create_invoice_route = format!("{paypal_base_route}invoicing/invoices");
 
         Ok(Self {
@@ -160,16 +164,15 @@ impl AppConfig {
             model_route: std::env::var("MODEL_ROUTE")
                 .unwrap_or_else(|_| "https://api.deepseek.com/v1/chat/completions".to_string()),
             database_pool,
-            paypal_access_token: std::env::var("PAYPAL_ACCESS_TOKEN")
-                .expect("PAYPAL_ACCESS_TOKEN not set"),
+            paypal_client_id,
+            paypal_client_secret,
+            paypal_oauth_route,
             paypal_base_route,
             paypal_create_invoice_route,
             paypal_invoicer_email: "sb-mk77o53121570@business.example.com".to_string(),
             paypal_invoicer_first_name: "John".to_string(),
             paypal_invoicer_last_name: "Doe".to_string(),
             paypal_recipient_email: "sb-6hvql53243495@personal.example.com".to_string(),
-            paypal_recipient_first_name: "Marry".to_string(),
-            paypal_recipient_last_name: "Jane".to_string()
         })
     }
 
@@ -178,5 +181,9 @@ impl AppConfig {
             "{}invoicing/invoices/{}/send",
             self.paypal_base_route, invoice_id
         )
+    }
+
+    pub fn get_paypal_invoices_route(&self) -> String {
+        format!("{}invoicing/invoices", self.paypal_base_route)
     }
 }

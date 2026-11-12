@@ -3,6 +3,20 @@ use serde::{Deserialize, Serialize};
 use sqlx::prelude::FromRow;
 use uuid::Uuid;
 
+fn deserialize_nullable_tax_type<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_else(|| "N".to_string()))
+}
+
+fn deserialize_nullable_tax<'de, D>(deserializer: D) -> Result<f32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<f32>::deserialize(deserializer)?.unwrap_or(0.0))
+}
+
 #[derive(Deserialize, Serialize, Clone)]
 pub struct Item {
     #[serde(default = "generate_uuid")]
@@ -10,6 +24,7 @@ pub struct Item {
     pub description: String,
     pub purchased_for: String,
     pub quantity: f32,
+    #[serde(deserialize_with = "deserialize_nullable_tax_type")]
     pub tax_type: String,
     pub total_price: f32,
     pub unit_price: f32,
@@ -22,9 +37,40 @@ pub struct Invoice {
     pub date_time: DateTime<FixedOffset>,
     pub items: Vec<Item>,
     pub subtotal: f32,
+    #[serde(deserialize_with = "deserialize_nullable_tax")]
     pub tax: f32,
     pub total: f32,
     pub transaction_number: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Invoice;
+
+    #[test]
+    fn deserializes_null_tax_fields_to_receipt_defaults() {
+        let invoice: Invoice = serde_json::from_str(
+            r#"{
+                "date_time": "2026-02-15T12:00:00+00:00",
+                "items": [{
+                    "quantity": 1,
+                    "description": "Lorem ipsum",
+                    "unit_price": 2.5,
+                    "total_price": 2.5,
+                    "tax_type": null,
+                    "purchased_for": "John"
+                }],
+                "subtotal": 2.5,
+                "tax": null,
+                "total": 2.5,
+                "transaction_number": "f3b1c2a4-9d7e-4c6b-8a2f-1e5d9c3b7a60"
+            }"#,
+        )
+        .expect("nullable tax fields should be normalized");
+
+        assert_eq!(invoice.tax, 0.0);
+        assert_eq!(invoice.items[0].tax_type, "N");
+    }
 }
 impl Item {
     pub fn new(

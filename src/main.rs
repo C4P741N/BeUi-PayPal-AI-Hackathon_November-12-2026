@@ -6,12 +6,15 @@ mod repositories;
 mod routes;
 
 use anyhow::Context;
-use axum::{Router, routing::post};
+use axum::{
+    Router,
+    routing::{get, post},
+};
 use config::AppConfig;
 use routes::convert::convert_handler;
 use tracing_subscriber;
 
-use crate::routes::invoice::invoice_handler;
+use crate::routes::invoice::{invoice_handler, list_invoices_handler};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -25,13 +28,18 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/convert", post(convert_handler))
         .route("/invoice", post(invoice_handler))
+        .route("/invoices", get(list_invoices_handler))
         .with_state(config);
 
     let addr = format!("0.0.0.0:{}", port);
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("failed to bind {addr}; another process may already use this port"))?;
     tracing::info!("Server running on {}", addr);
 
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app)
+        .await
+        .context("HTTP server stopped unexpectedly")?;
 
     Ok(())
 }

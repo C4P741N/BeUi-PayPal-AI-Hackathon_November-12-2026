@@ -22,7 +22,42 @@ pub async fn convert_handler(
 
     match send_request(&config, &data_url, prompt).await {
         Ok(text) => {
-            let invoice = match serde_json::from_str::<Invoice>(&text) {
+            let model_payload = match serde_json::from_str::<serde_json::Value>(&text) {
+                Ok(payload) => payload,
+                Err(e) => {
+                    return (
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        Json(serde_json::json!({
+                            "error": "Failed to parse extracted text to Invoice",
+                            "details": e.to_string(),
+                            "raw_text": text
+                        })),
+                    )
+                        .into_response();
+                }
+            };
+
+            if let Some(error_code) = model_payload.get("error").and_then(|v| v.as_str()) {
+                let message = model_payload
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Receipt could not be processed.");
+                let status = if error_code == "INVALID_CONTACT" {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::UNPROCESSABLE_ENTITY
+                };
+                return (
+                    status,
+                    Json(serde_json::json!({
+                        "error": error_code,
+                        "message": message
+                    })),
+                )
+                    .into_response();
+            }
+
+            let invoice = match serde_json::from_value::<Invoice>(model_payload) {
                 Ok(inv) => inv,
                 Err(e) => {
                     return (

@@ -12,6 +12,7 @@ import {
 import { useToast } from '@/hooks/use-toast'
 import { Markdown } from './markdown'
 import { ReceiptCard } from './receipt-card'
+import { InvoiceListCard } from './invoice-list-card'
 import type { ChatMsg } from './types'
 
 interface MessageListProps {
@@ -144,6 +145,7 @@ export function MessageList({ messages, onRegenerate, onEditUserMessage, receipt
           </div>
         ) : (
           <div key={m.id} className="msg-fade-in group/assistant flex flex-col">
+            {m.invoices && <InvoiceListCard invoices={m.invoices} />}
             {m.receipt && (
               <div
                 className="mx-auto max-w-xl"
@@ -177,7 +179,7 @@ export function MessageList({ messages, onRegenerate, onEditUserMessage, receipt
 
             {m.error && (
               <p className="text-sm text-destructive">
-                Something went wrong while processing the receipt. Please try again.
+                Something went wrong while processing this request. Please try again.
               </p>
             )}
 

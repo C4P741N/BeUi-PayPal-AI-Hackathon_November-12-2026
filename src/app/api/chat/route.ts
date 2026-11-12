@@ -1,6 +1,13 @@
 import { NextRequest } from 'next/server'
 import ZAI from 'z-ai-web-dev-sdk'
 import { createMessage, deleteMessage, getConversation, getLastMessage } from '@/lib/store'
+import {
+  createInvoiceAnswer,
+  detectInvoiceLookup,
+  fetchPayPalInvoices,
+  filterInvoices,
+} from '@/lib/paypal-invoices'
+import type { PayPalInvoice } from '@/lib/paypal-invoices'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -93,12 +100,25 @@ export async function POST(req: NextRequest) {
       .filter(Boolean)
       .join(' ')
 
-    const zai = await ZAI.create()
-
     const textMessages = [
       { role: 'system' as const, content: systemPrompt },
       ...historyMessages,
     ]
+
+    const invoiceLookup = hasText && !imageUrl ? detectInvoiceLookup(content!.trim()) : null
+    let invoiceResults: PayPalInvoice[] | undefined
+    let immediateAnswer: string | undefined
+    if (invoiceLookup) {
+      try {
+        invoiceResults = filterInvoices(await fetchPayPalInvoices(), invoiceLookup)
+        immediateAnswer = createInvoiceAnswer(invoiceLookup, invoiceResults)
+      } catch (error) {
+        console.error('PayPal invoice lookup failed:', error)
+        const message =
+          error instanceof Error ? error.message : 'Could not retrieve PayPal invoices.'
+        return Response.json({ error: message }, { status: 502 })
+      }
+    }
 
     /* When a fresh image is attached, send the last user turn to the
        vision endpoint with the image inline. If the vision call fails
@@ -110,41 +130,44 @@ export async function POST(req: NextRequest) {
     const thinkingParam = { type: (model === 'thinking' ? 'enabled' : 'disabled') as 'enabled' | 'disabled' }
 
     let upstream: unknown
-    if (attachImage) {
-      const visionMessages = textMessages.map((m, i) => {
-        if (i !== textMessages.length - 1) return m
-        const parts: { type: string; text?: string; image_url?: { url: string } }[] = []
-        if (hasText) parts.push({ type: 'text', text: content!.trim() })
-        parts.push({ type: 'image_url', image_url: { url: imageUrl! } })
-        return { role: 'user', content: parts }
-      })
-      try {
-        // "model" is intentionally omitted — the gateway picks the default
-        // vision model (see the SDK README vision example).
-        upstream = await zai.chat.completions.createVision({
-          messages: visionMessages,
-          stream: true,
-          thinking: thinkingParam,
-        } as Parameters<typeof zai.chat.completions.createVision>[0])
-      } catch {
-        const fallbackSystem =
-          systemPrompt +
-          ' Note: the user attached an image, but you cannot view images in this session. If asked about the image contents, say that you cannot see it in this demo.'
+    if (immediateAnswer === undefined) {
+      const zai = await ZAI.create()
+      if (attachImage) {
+        const visionMessages = textMessages.map((m, i) => {
+          if (i !== textMessages.length - 1) return m
+          const parts: { type: string; text?: string; image_url?: { url: string } }[] = []
+          if (hasText) parts.push({ type: 'text', text: content!.trim() })
+          parts.push({ type: 'image_url', image_url: { url: imageUrl! } })
+          return { role: 'user', content: parts }
+        })
+        try {
+          // "model" is intentionally omitted — the gateway picks the default
+          // vision model (see the SDK README vision example).
+          upstream = await zai.chat.completions.createVision({
+            messages: visionMessages,
+            stream: true,
+            thinking: thinkingParam,
+          } as Parameters<typeof zai.chat.completions.createVision>[0])
+        } catch {
+          const fallbackSystem =
+            systemPrompt +
+            ' Note: the user attached an image, but you cannot view images in this session. If asked about the image contents, say that you cannot see it in this demo.'
+          upstream = await zai.chat.completions.create({
+            messages: [
+              { role: 'system', content: fallbackSystem },
+              ...historyMessages,
+            ],
+            stream: true,
+            thinking: thinkingParam,
+          })
+        }
+      } else {
         upstream = await zai.chat.completions.create({
-          messages: [
-            { role: 'system', content: fallbackSystem },
-            ...historyMessages,
-          ],
+          messages: textMessages,
           stream: true,
           thinking: thinkingParam,
         })
       }
-    } else {
-      upstream = await zai.chat.completions.create({
-        messages: textMessages,
-        stream: true,
-        thinking: thinkingParam,
-      })
     }
 
     const encoder = new TextEncoder()
@@ -165,43 +188,49 @@ export async function POST(req: NextRequest) {
         send({ type: 'start', userMessageId: savedUserMessageId })
 
         let full = ''
-        const reader = (upstream as ReadableStream<Uint8Array>).getReader()
-        readerRef = reader
-        const decoder = new TextDecoder()
-        let buffer = ''
+        if (immediateAnswer !== undefined) {
+          full = immediateAnswer
+          send({ type: 'invoices', invoices: invoiceResults })
+          send({ type: 'delta', content: immediateAnswer })
+        } else {
+          const reader = (upstream as ReadableStream<Uint8Array>).getReader()
+          readerRef = reader
+          const decoder = new TextDecoder()
+          let buffer = ''
 
-        const processLine = (line: string) => {
-          const trimmed = line.trim()
-          if (!trimmed.startsWith('data:')) return
-          const payload = trimmed.slice(5).trim()
-          if (!payload || payload === '[DONE]') return
-          try {
-            const json = JSON.parse(payload)
-            const delta: string =
-              json.choices?.[0]?.delta?.content ??
-              json.choices?.[0]?.message?.content ??
-              ''
-            if (delta) {
-              full += delta
-              send({ type: 'delta', content: delta })
+          const processLine = (line: string) => {
+            const trimmed = line.trim()
+            if (!trimmed.startsWith('data:')) return
+            const payload = trimmed.slice(5).trim()
+            if (!payload || payload === '[DONE]') return
+            try {
+              const json = JSON.parse(payload)
+              const delta: string =
+                json.choices?.[0]?.delta?.content ??
+                json.choices?.[0]?.message?.content ??
+                ''
+              if (delta) {
+                full += delta
+                send({ type: 'delta', content: delta })
+              }
+            } catch {
+              // ignore malformed keep-alive lines
             }
-          } catch {
-            // ignore malformed keep-alive lines
           }
-        }
 
-        try {
-          while (true) {
-            const { done, value } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            const lines = buffer.split('\n')
-            buffer = lines.pop() ?? ''
-            for (const line of lines) processLine(line)
+          try {
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              buffer += decoder.decode(value, { stream: true })
+              const lines = buffer.split('\n')
+              buffer = lines.pop() ?? ''
+              for (const line of lines) processLine(line)
+            }
+            if (buffer) processLine(buffer)
+          } catch {
+            send({ type: 'error', message: 'The stream was interrupted.' })
           }
-          if (buffer) processLine(buffer)
-        } catch {
-          send({ type: 'error', message: 'The stream was interrupted.' })
         }
 
         // Persist whatever was generated (full or partial on abort)

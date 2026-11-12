@@ -1,3 +1,5 @@
+import type { PayPalInvoice } from '@/lib/paypal-invoices'
+
 export interface ConversationSummary {
   id: string
   title: string
@@ -35,6 +37,8 @@ export interface ChatMsg {
   imageUrl?: string
   /** Structured receipt breakdown returned by the processing backend */
   receipt?: ReceiptPayload
+  /** PayPal invoices returned by an invoice status/list query */
+  invoices?: PayPalInvoice[]
   /** True while the placeholder is waiting for the receipt-processing backend */
   processingReceipt?: boolean
   streaming?: boolean

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, HandCoins, ReceiptText } from 'lucide-react'
+import { Check, HandCoins, LoaderCircle, ReceiptText } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast'
 import type { ReceiptItem, ReceiptPayload } from './types'
 
@@ -57,6 +57,7 @@ function TaxChip({ type }: { type: ReceiptItem['tax_type'] }) {
 export function ReceiptCard({ receipt }: { receipt: ReceiptPayload }) {
   const { toast } = useToast()
   const [invoiced, setInvoiced] = useState(false)
+  const [sending, setSending] = useState(false)
   const debtors = buildDebtors(receipt)
 
   const when = new Date(receipt.date_time)
@@ -64,20 +65,48 @@ export function ReceiptCard({ receipt }: { receipt: ReceiptPayload }) {
     ? receipt.date_time
     : when.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })
 
-  const namesLabel = debtors.map((d) => capitalize(d.name)).join(' & ')
+  const sendInvoice = async () => {
+    if (sending || invoiced) return
+    setSending(true)
+    try {
+      const response = await fetch('/api/invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction_number: receipt.transaction_number }),
+      })
+      const result = (await response.json().catch(() => null)) as {
+        success?: boolean
+        error?: string
+        invoice_id?: string
+        invoice_status?: string
+        already_exists?: boolean
+      } | null
+      if (!result) {
+        throw new Error('Invoice backend returned an invalid response. Check PayPal before retrying.')
+      }
 
-  /**
-   * Demo action: mark the PayPal invoices as sent. Wire your backend here —
-   * e.g. POST /api/invoice with the debtors list to create real PayPal
-   * invoices via the Invoicing API, or open paypal.me/<user>/<amount> links.
-   */
-  const sendInvoices = () => {
-    setInvoiced(true)
-    toast({
-      description: `Invoice request sent to ${debtors
-        .map((d) => `${capitalize(d.name)} (${money(d.amount)})`)
-        .join(' and ')} via PayPal.`,
-    })
+      if (!response.ok || !result.success) {
+        const invoiceNote = result.invoice_id ? ` PayPal invoice ID: ${result.invoice_id}.` : ''
+        throw new Error(
+          `${result.error || 'Could not send the PayPal invoice.'}${invoiceNote} Check PayPal before retrying to avoid duplicates.`
+        )
+      }
+
+      setInvoiced(true)
+      toast({
+        description: result.already_exists
+          ? `PayPal invoice ${result.invoice_id} already exists with status ${result.invoice_status ?? 'unknown'}; it was not sent again.`
+          : result.invoice_id
+            ? `PayPal invoice ${result.invoice_id} sent to the configured recipient.`
+            : 'PayPal invoice sent to the configured recipient.',
+      })
+    } catch (error) {
+      toast({
+        description: error instanceof Error ? error.message : 'Could not send the PayPal invoice.',
+      })
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -151,21 +180,23 @@ export function ReceiptCard({ receipt }: { receipt: ReceiptPayload }) {
               Includes each person&rsquo;s share of the tax on taxable (T) items.
             </p>
             <button
-              onClick={sendInvoices}
-              disabled={invoiced}
+              onClick={sendInvoice}
+              disabled={sending || invoiced}
               title={
                 invoiced
-                  ? 'Invoices sent'
-                  : `Send a PayPal invoice to ${namesLabel}`
+                  ? 'Invoice sent'
+                  : `Send a PayPal invoice for transaction ${receipt.transaction_number}`
               }
               className="mt-1 flex h-9 w-full items-center justify-center gap-2 rounded-lg bg-primary text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-60"
             >
               {invoiced ? (
                 <Check className="size-4" aria-hidden />
+              ) : sending ? (
+                <LoaderCircle className="size-4 animate-spin" aria-hidden />
               ) : (
                 <HandCoins className="size-4" aria-hidden />
               )}
-              {invoiced ? 'Invoices sent' : `Invoice ${namesLabel} via PayPal`}
+              {invoiced ? 'Invoice sent' : sending ? 'Sending invoice…' : 'Send invoice now'}
             </button>
           </div>
         )}

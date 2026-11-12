@@ -22,17 +22,18 @@ export const maxDuration = 120
  *
  *   curl -X POST {RECEIPT_BACKEND_URL}/convert \
  *     -H "Content-Type: application/json" \
- *     -d '{ "image": "<raw base64 of the receipt image>" }'
+ *     -d '{ "image": "<raw base64 of the receipt image>", "prompt": "<allocation instructions>" }'
  *
  * i.e. the base64 string WITHOUT the `data:image/...;base64,` prefix, and
  * expects the receipt payload JSON (see ReceiptPayload in
  * src/components/chatgpt/types.ts) as the response body — the payload the
  * backend returns IS the response; there is no demo fallback. The user's
- * typed instructions are NOT sent to the backend (per the contract curl) —
- * they are stored with the conversation in this app's in-memory store.
+ * typed instructions are sent as `prompt` and stored with the
+ * conversation in this app's in-memory store.
  *
- * Errors: 503 when RECEIPT_BACKEND_URL is unset; 502 when the backend is
- * unreachable or its response does not match the payload structure.
+ * Errors: 503 when RECEIPT_BACKEND_URL is unset; 400 when allocation
+ * instructions are empty; 422 for an unreadable receipt; and 502 when the
+ * backend is unreachable or returns an invalid response.
  * ───────────────────────────────────────────────────────────────────────────
  */
 
@@ -104,28 +105,39 @@ function toRawBase64(dataUrl: string): string {
 }
 
 /** Forward to the user's receipt-processing backend.
- *  Contract: POST {RECEIPT_BACKEND_URL}/convert  body { image: <base64> }.
+ *  Contract: POST {RECEIPT_BACKEND_URL}/convert  body { image: <base64>, prompt }.
  *  The backend's response payload IS the result — never a demo fallback. */
 async function callBackend(
   backendBase: string,
-  imageUrl: string
+  imageUrl: string,
+  prompt?: string
 ): Promise<{ ok: true; receipt: ReceiptPayload } | { ok: false; status: number; error: string }> {
   const base = backendBase.replace(/\/+$/, '')
   try {
     const res = await fetch(`${base}/convert`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: toRawBase64(imageUrl) }),
+      body: JSON.stringify({ image: toRawBase64(imageUrl), prompt: prompt?.trim() }),
       signal: AbortSignal.timeout(60_000),
     })
+    const payload: unknown = await res.json().catch(() => null)
     if (!res.ok) {
+      const errorPayload =
+        payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+      const errorCode = typeof errorPayload.error === 'string' ? errorPayload.error : ''
+      const backendMessage =
+        typeof errorPayload.message === 'string' ? errorPayload.message : ''
+      const error =
+        errorCode === 'INVALID_CONTACT'
+          ? 'The receipt service returned an outdated contact-validation response. Restart the Rust backend; unassigned items should be assigned to you.'
+          : backendMessage || `Receipt backend responded with HTTP ${res.status}`
       return {
         ok: false,
-        status: 502,
-        error: `Receipt backend responded with HTTP ${res.status}`,
+        status: errorCode === 'INVALID_CONTACT' ? 400 : errorCode === 'INVALID_RECEIPT' ? 422 : 502,
+        error,
       }
     }
-    const receipt = normalizeReceipt(await res.json())
+    const receipt = normalizeReceipt(payload)
     if (!receipt) {
       return {
         ok: false,
@@ -154,6 +166,15 @@ export async function POST(req: NextRequest) {
     if (imageUrl.length > 8_000_000) {
       return Response.json({ error: 'Image is too large' }, { status: 400 })
     }
+    if (!text?.trim()) {
+      return Response.json(
+        {
+          error:
+            'Add optional allocation instructions, e.g. "Alice had the pasta, Bob had drinks." Unassigned items will be assigned to you.',
+        },
+        { status: 400 }
+      )
+    }
 
     // The receipt-processing backend is required — its response IS the result.
     const backendUrl = process.env.RECEIPT_BACKEND_URL
@@ -166,7 +187,7 @@ export async function POST(req: NextRequest) {
         { status: 503 }
       )
     }
-    const result = await callBackend(backendUrl, imageUrl)
+    const result = await callBackend(backendUrl, imageUrl, text)
     if (!result.ok) {
       return Response.json({ error: result.error }, { status: result.status })
     }

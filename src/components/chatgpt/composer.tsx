@@ -52,6 +52,13 @@ export const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function 
     const text = value.trim()
     if (streaming) return
     if (!text && !pendingImage) return
+    if (pendingImage && !text) {
+      toast({
+        description:
+          'Add optional allocation instructions, e.g. "Alice had the pasta, Bob had drinks." Unassigned items will be assigned to you.',
+      })
+      return
+    }
     onSend(text)
     setValue('')
     requestAnimationFrame(() => {
@@ -98,7 +105,7 @@ export const Composer = forwardRef<HTMLTextAreaElement, ComposerProps>(function 
           rows={1}
           placeholder={
             pendingImage
-              ? "Who spent on what? e.g. Alice paid $24 for lunch, Bob paid $12 for drinks"
+              ? "Who had what? e.g. Alice had pasta, Bob had drinks; unassigned items go to you"
               : 'Ask anything'
           }
           aria-label="Message SplitWise"

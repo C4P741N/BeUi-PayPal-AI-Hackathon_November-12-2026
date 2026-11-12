@@ -14,6 +14,7 @@ import type {
   ConversationSummary,
   ReceiptPayload,
 } from '@/components/chatgpt/types'
+import { isPayPalInvoice } from '@/lib/paypal-invoices'
 
 export default function ChatGPTClone() {
   const [activeId, setActiveId] = useState<string | null>(null)
@@ -134,6 +135,7 @@ export default function ChatGPTClone() {
       const controller = new AbortController()
       abortRef.current = controller
       let hadError = false
+      let failureMessage: string | undefined
 
       try {
         const res = await fetch('/api/chat', {
@@ -150,13 +152,18 @@ export default function ChatGPTClone() {
           }),
           signal: controller.signal,
         })
-        if (!res.ok || !res.body) throw new Error('Stream request failed')
+        if (!res.ok) {
+          const failure = (await res.json().catch(() => null)) as { error?: string } | null
+          throw new Error(failure?.error || 'Stream request failed')
+        }
+        if (!res.body) throw new Error('Stream response did not contain a body.')
 
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
 
         const handleEvent = (evt: Record<string, unknown>) => {
+          const invoiceValues = evt.invoices
           if (evt.type === 'start' && typeof evt.userMessageId === 'string') {
             const realId = evt.userMessageId
             setMessages((prev) => {
@@ -175,8 +182,20 @@ export default function ChatGPTClone() {
                 m.id === assistantId ? { ...m, content: m.content + evt.content } : m
               )
             )
+          } else if (
+            evt.type === 'invoices' &&
+            Array.isArray(invoiceValues) &&
+            invoiceValues.every(isPayPalInvoice)
+          ) {
+            const invoices = invoiceValues
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, invoices } : m
+              )
+            )
           } else if (evt.type === 'error') {
             hadError = true
+            if (typeof evt.message === 'string') failureMessage = evt.message
           }
         }
 
@@ -198,7 +217,10 @@ export default function ChatGPTClone() {
         }
       } catch (err) {
         const aborted = err instanceof DOMException && err.name === 'AbortError'
-        if (!aborted) hadError = true
+        if (!aborted) {
+          hadError = true
+          failureMessage = err instanceof Error ? err.message : 'Stream request failed'
+        }
       } finally {
         abortRef.current = null
         streamingRef.current = false
@@ -210,7 +232,7 @@ export default function ChatGPTClone() {
           setMessages((prev) =>
             prev.map((m) => (m.id === assistantId ? { ...m, error: true } : m))
           )
-          toast({ description: 'Something went wrong. Please try again.' })
+          toast({ description: failureMessage || 'Something went wrong. Please try again.' })
         }
       }
     },

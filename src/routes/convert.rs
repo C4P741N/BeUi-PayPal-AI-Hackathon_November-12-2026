@@ -1,11 +1,11 @@
 use super::types::*;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use paypal_ai_hackathon_november_12_2026::repositories::post_repository;
-use paypal_ai_hackathon_november_12_2026::repositories::types::Invoice;
+use crate::repositories::types::Invoice;
 
 use crate::api::client::send_request;
 use crate::config::AppConfig;
 use crate::image::processor::{build_data_url, detect_mime, strip_prefix};
+use crate::repositories::post_repository::save_invoice;
 
 pub async fn convert_handler(
     State(config): State<AppConfig>,
@@ -37,7 +37,7 @@ pub async fn convert_handler(
                 }
             };
 
-            match post_repository::save_invoice(&config.database_pool, &invoice).await {
+            match save_invoice(&config.database_pool, &invoice).await {
                 Ok(_) => (StatusCode::OK, Json(invoice)).into_response(),
                 Err(e) => (
                     StatusCode::INTERNAL_SERVER_ERROR,

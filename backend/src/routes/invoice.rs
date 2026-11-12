@@ -435,7 +435,6 @@ fn build_paypal_invoice_payload(
     invoice_number: &str,
     debtor: &InvoiceDebtor<'_>,
 ) -> PayPalInvoicePayload {
-    let first_item = debtor.items[0];
     let mut items: Vec<PayPalItem> = debtor
         .items
         .iter()
@@ -465,7 +464,6 @@ fn build_paypal_invoice_payload(
     PayPalInvoicePayload {
         detail: PayPalInvoiceDetail {
             invoice_number: invoice_number.to_string(),
-            invoice_date: first_item.date_time.format("%Y-%m-%d").to_string(),
             currency_code: "USD".to_string(),
             note: format!("Invoice for {}", debtor.recipient_name),
             payment_term: PayPalPaymentTerm {
@@ -718,5 +716,20 @@ mod tests {
         let name = paypal_name(&display_recipient_name("bob smith"));
         assert_eq!(name.given_name, "Bob");
         assert_eq!(name.surname, "Smith");
+    }
+
+    #[test]
+    fn paypal_invoice_detail_omits_schedule_date() {
+        let detail = PayPalInvoiceDetail {
+            invoice_number: "invoice-1".to_string(),
+            currency_code: "USD".to_string(),
+            note: "Invoice for Bob".to_string(),
+            payment_term: PayPalPaymentTerm {
+                term_type: "NO_DUE_DATE".to_string(),
+            },
+        };
+
+        let value = serde_json::to_value(detail).expect("invoice detail should serialize");
+        assert!(value.get("invoice_date").is_none());
     }
 }

@@ -121,7 +121,6 @@ pub struct PayPalInvoicePayload {
 #[derive(Debug, Serialize)]
 pub struct PayPalInvoiceDetail {
     pub invoice_number: String,
-    pub invoice_date: String,
     pub currency_code: String,
     pub note: String,
     pub payment_term: PayPalPaymentTerm,

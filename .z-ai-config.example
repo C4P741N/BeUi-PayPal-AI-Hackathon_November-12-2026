@@ -1,0 +1,4 @@
+{
+  "baseUrl": "https://your-provider.example/v1",
+  "apiKey": "replace-with-your-provider-api-key"
+}

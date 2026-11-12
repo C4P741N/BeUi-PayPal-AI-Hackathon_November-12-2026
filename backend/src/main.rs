@@ -23,9 +23,14 @@ async fn main() -> anyhow::Result<()> {
     let config = AppConfig::load()
         .await
         .context("failed to load application config")?;
+    sqlx::migrate!("./migrations")
+        .run(&config.database_pool)
+        .await
+        .context("failed to run database migrations")?;
     let port = config.port;
 
     let app = Router::new()
+        .route("/health", get(|| async { "ok" }))
         .route("/convert", post(convert_handler))
         .route("/invoice", post(invoice_handler))
         .route("/invoices", get(list_invoices_handler))

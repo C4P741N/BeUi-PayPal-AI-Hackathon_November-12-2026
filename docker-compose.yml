@@ -1,0 +1,73 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DATABASE_USER:?Set DATABASE_USER in .env}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD in .env}
+      POSTGRES_DB: ${DATABASE_NAME:?Set DATABASE_NAME in .env}
+    ports:
+      - "${DATABASE_HOST_PORT:-5434}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_HOST: postgres
+      DATABASE_PORT: "5432"
+      DATABASE_USER: ${DATABASE_USER:?Set DATABASE_USER in .env}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD in .env}
+      DATABASE_NAME: ${DATABASE_NAME:?Set DATABASE_NAME in .env}
+      PORT: "3001"
+      MODEL_API_KEY: ${MODEL_API_KEY:?Set MODEL_API_KEY in .env}
+      MODEL_NAME: ${MODEL_NAME:-deepseek-chat}
+      MODEL_ROUTE: ${MODEL_ROUTE:-https://api.deepseek.com/v1/chat/completions}
+      MAX_TOKENS: ${MAX_TOKENS:-1024}
+      PAYPAL_CLIENT_ID: ${PAYPAL_CLIENT_ID:?Set PAYPAL_CLIENT_ID in .env}
+      PAYPAL_CLIENT_SECRET: ${PAYPAL_CLIENT_SECRET:?Set PAYPAL_CLIENT_SECRET in .env}
+      PAYPAL_ROUTE: ${PAYPAL_ROUTE:-https://api-m.sandbox.paypal.com/v2/}
+      PAYPAL_HTTP_DEBUG: ${PAYPAL_HTTP_DEBUG:-0}
+    ports:
+      - "${BACKEND_HOST_PORT:-3001}:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      RECEIPT_BACKEND_URL: http://backend:3001
+    ports:
+      - "${UI_HOST_PORT:-3000}:3000"
+    volumes:
+      - type: bind
+        source: ${ZAI_CONFIG_PATH:-./.z-ai-config}
+        target: /app/.z-ai-config
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

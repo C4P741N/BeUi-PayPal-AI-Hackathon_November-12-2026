@@ -122,14 +122,15 @@ impl AppConfig {
         let db_pass = std::env::var("DATABASE_PASSWORD").expect("DATABASE_PASSWORD not set");
         let db_name = std::env::var("DATABASE_NAME").expect("DATABASE_NAME not set");
         let db_port = std::env::var("DATABASE_PORT").expect("DATABASE_PORT not set");
+        let db_host =
+            std::env::var("DATABASE_HOST").unwrap_or_else(|_| "localhost".to_string());
 
-        let database_url = format!("postgres://{db_user}:{db_pass}@localhost:{db_port}/{db_name}");
+        let database_url =
+            format!("postgres://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}");
 
         let database_pool = crate::database::connection::connect_database(&database_url)
             .await
-            .context(format!(
-                "failed to connect to the database url: {database_url}"
-            ))?;
+            .context(format!("failed to connect to database {db_host}:{db_port}/{db_name}"))?;
 
         let paypal_base_route = std::env::var("PAYPAL_ROUTE")
             .unwrap_or_else(|_| "https://api-m.sandbox.paypal.com/v2/".to_string());
